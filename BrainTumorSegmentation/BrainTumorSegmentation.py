@@ -238,8 +238,8 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
     def onApplyButton(self) -> None:
         """Run processing when user clicks "Apply" button."""
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
-            # Compute output
-            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode())
+            sigma = self.ui.blurStrengthSlider.value
+            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(), sigma=sigma)
 
             
 
@@ -269,6 +269,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
     def process(self,
                 inputVolume: vtkMRMLScalarVolumeNode,
                 outputVolume: vtkMRMLScalarVolumeNode,
+                sigma = 1.0,
                 showResult: bool = True) -> None:
         """
         Run the processing algorithm.
@@ -277,6 +278,8 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         :param outputVolume: thresholding result
         :param showResult: show output volume in slice viewers
         """
+        if not outputVolume.GetDisplayNode(): #create a default output display node if one doesn't exist
+            outputVolume.CreateDefaultDisplayNodes()
 
         if not inputVolume or not outputVolume:
             raise ValueError("Input or output volume is invalid")
@@ -286,26 +289,25 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         startTime = time.time()
         logging.info("Processing started")
 
-        
-
-        volume_numpy = slicer.util.arrayFromVolume(inputVolume)
-
         #this is where we need to do all the processing on volume_numpy, for example a gaussian filter
 
-        filtered_volume = gaussian_filter(volume_numpy, sigma=1)
+        outputVolume.SetOrigin(inputVolume.GetOrigin())
+        outputVolume.SetSpacing(inputVolume.GetSpacing())
 
+        ijk_to_RAS = vtk.vtkMatrix4x4()
+        inputVolume.GetIJKToRASMatrix(ijk_to_RAS)
+        outputVolume.SetIJKToRASMatrix(ijk_to_RAS)
+        #at this point output volume has all same spacing, origin, etc... as input
+        #all filtering/manipulation should come after this
 
-
+        
+        volume_numpy = slicer.util.arrayFromVolume(inputVolume)
+        sitk_image = sitk.GetImageFromArray(volume_numpy) #sitk takes Z, Y, X array order
+        sitk_image = sitk.SmoothingRecursiveGaussian(sitk_image, sigma=sigma)
+        filtered_volume = sitk.GetArrayFromImage(sitk_image)
 
         slicer.util.updateVolumeFromArray(outputVolume, filtered_volume)
 
-        
-        
-       
-
-        
-
-        
 
         stopTime = time.time()
         logging.info(f"Processing completed in {stopTime-startTime:.2f} seconds")
