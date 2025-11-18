@@ -15,6 +15,7 @@ from slicer.parameterNodeWrapper import (
 )
 
 from slicer import vtkMRMLScalarVolumeNode
+import SimpleITK as sitk
 
 import numpy
 from scipy.ndimage import gaussian_filter, convolve
