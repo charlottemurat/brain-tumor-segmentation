@@ -142,6 +142,10 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
+        self.inputSelector = slicer.qMRMLNodeComboBox()
+        self.inputSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
+        self.inputSelector.setMRMLScene(slicer.mrmlScene)
+        self.layout.addWidget(self.inputSelector)
 
         # Load widget from .ui file (created by Qt Designer).
         # Additional widgets can be instantiated manually and added to self.layout.
@@ -241,9 +245,14 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
             sigma = self.ui.blurStrengthSlider.value
             self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(), sigma=sigma)
+            inputVolume = self.inputSelector.currentNode()
+            logic = BrainTumorSegmentationLogic()
 
-            
+            voxels = slicer.util.arrayFromVolume(inputVolume)
 
+            vrLogic = slicer.modules.volumerendering.logic()
+            displayNode = vrLogic.CreateDefaultVolumeRenderingNodes(inputVolume)
+            displayNode.SetVisibility(True)
 
 #
 # BrainTumorSegmentationLogic
@@ -279,6 +288,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         :param outputVolume: thresholding result
         :param showResult: show output volume in slice viewers
         """
+        
         if not outputVolume.GetDisplayNode(): #create a default output display node if one doesn't exist
             outputVolume.CreateDefaultDisplayNodes()
 
