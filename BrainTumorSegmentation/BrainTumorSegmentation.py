@@ -329,6 +329,23 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
             displayNode.SetWindow(scalarRange[1] - scalarRange[0])
             displayNode.SetLevel(0.5 * (scalarRange[0] + scalarRange[1]))
 
+        # Thresholding
+        arr = slicer.util.arrayFromVolume(inputVolume) 
+
+        sitkImage = sitk.GetImageFromArray(arr)
+        sitkImage.SetSpacing(inputVolume.GetSpacing())
+
+        thresholdValue = arr.max() / 2 
+        binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=thresholdValue, upperThreshold=1e9, insideValue=1, outsideValue=0)
+
+        cc = sitk.ConnectedComponent(binaryMask)
+        largest = sitk.RelabelComponent(cc, sortByObjectSize=True)
+        largestMask = largest == 1
+
+        maskedImage = sitk.Mask(sitkImage, largestMask)
+
+        maskedArr = sitk.GetArrayFromImage(maskedImage)
+        slicer.util.updateVolumeFromArray(inputVolume, maskedArr)
 
         stopTime = time.time()
         logging.info(f"Processing completed in {stopTime-startTime:.2f} seconds")
