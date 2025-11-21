@@ -142,6 +142,10 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
+        self.inputSelector = slicer.qMRMLNodeComboBox()
+        self.inputSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
+        self.inputSelector.setMRMLScene(slicer.mrmlScene)
+        self.layout.addWidget(self.inputSelector)
 
         # Load widget from .ui file (created by Qt Designer).
         # Additional widgets can be instantiated manually and added to self.layout.
@@ -240,10 +244,16 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
         """Run processing when user clicks "Apply" button."""
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
             sigma = self.ui.blurStrengthSlider.value
-            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(), sigma=sigma)
+            alpha = self.ui.sharpStrengthSlider.value
+            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(), sigma=sigma, alpha = alpha)
+            inputVolume = self.inputSelector.currentNode()
+            logic = BrainTumorSegmentationLogic()
 
-            
+            voxels = slicer.util.arrayFromVolume(inputVolume)
 
+            vrLogic = slicer.modules.volumerendering.logic()
+            displayNode = vrLogic.CreateDefaultVolumeRenderingNodes(inputVolume)
+            displayNode.SetVisibility(True)
 
 #
 # BrainTumorSegmentationLogic
@@ -270,7 +280,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
     def process(self,
                 inputVolume: vtkMRMLScalarVolumeNode,
                 outputVolume: vtkMRMLScalarVolumeNode,
-                sigma = 1.0,
+                sigma = 1.0, alpha = 1.0,
                 showResult: bool = True) -> None:
         """
         Run the processing algorithm.
@@ -279,6 +289,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         :param outputVolume: thresholding result
         :param showResult: show output volume in slice viewers
         """
+        
         if not outputVolume.GetDisplayNode(): #create a default output display node if one doesn't exist
             outputVolume.CreateDefaultDisplayNodes()
 
@@ -304,10 +315,19 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         
         volume_numpy = slicer.util.arrayFromVolume(inputVolume)
         sitk_image = sitk.GetImageFromArray(volume_numpy) #sitk takes Z, Y, X array order
-        sitk_image = sitk.SmoothingRecursiveGaussian(sitk_image, sigma=sigma)
-        filtered_volume = sitk.GetArrayFromImage(sitk_image)
+        blur_image = sitk.SmoothingRecursiveGaussian(sitk_image, sigma=sigma)
+
+        high_freq = sitk.Subtract(sitk_image, blur_image)
+        blur_image = sitk.Add(sitk_image, sitk.Multiply(high_freq, alpha))
+        
+        filtered_volume = sitk.GetArrayFromImage(blur_image)
 
         slicer.util.updateVolumeFromArray(outputVolume, filtered_volume)
+        displayNode = outputVolume.GetDisplayNode()
+        if displayNode:
+            scalarRange = outputVolume.GetImageData().GetScalarRange()
+            displayNode.SetWindow(scalarRange[1] - scalarRange[0])
+            displayNode.SetLevel(0.5 * (scalarRange[0] + scalarRange[1]))
 
 
         stopTime = time.time()
