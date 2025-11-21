@@ -319,6 +319,19 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
 
         slicer.util.updateVolumeFromArray(outputVolume, filtered_volume)
 
+        # Thresholding
+        arr = slicer.util.arrayFromVolume(inputVolume) 
+
+        sitkImage = sitk.GetImageFromArray(arr)
+        sitkImage.SetSpacing(inputVolume.GetSpacing())
+
+        thresholdValue = arr.max() / 2 
+        binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=thresholdValue, upperThreshold=1e9, insideValue=1, outsideValue=0)
+
+        maskedImage = sitk.Mask(sitkImage, binaryMask)
+
+        maskedArr = sitk.GetArrayFromImage(maskedImage)
+        slicer.util.updateVolumeFromArray(inputVolume, maskedArr)
 
         stopTime = time.time()
         logging.info(f"Processing completed in {stopTime-startTime:.2f} seconds")
