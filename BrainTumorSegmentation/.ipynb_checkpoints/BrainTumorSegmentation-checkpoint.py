@@ -247,10 +247,10 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
             alpha = self.ui.sharpStrengthSlider.value
             lower = self.ui.lowerThreshold.value
             upper = self.ui.upperThreshold.value
-            inputVolume = self.inputSelector.currentNode()
+            inputVolume = self.ui.inputSelector.currentNode()
             outputVolume = self.ui.outputSelector.currentNode()
 
-            showInput = self.ui.showInput.checked
+            inputOpacity = self.ui.inputOpacity.value
             showMask = self.ui.showMask.checked
             
             self.logic.process(inputVolume, outputVolume, sigma=sigma, alpha=alpha, lower=lower, upper=upper)
@@ -270,7 +270,8 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
             maskOpacityFunction.AddPoint(1, 1.0)
     
             inputNode = vrLogic.CreateDefaultVolumeRenderingNodes(inputVolume) #setting transparency for input volume overlay
-            inputNode.SetVisibility(showInput)
+            showInputVolume = inputOpacity != 0
+            inputNode.SetVisibility(showInputVolume)
     
             inputPropertyNode = inputNode.GetVolumePropertyNode()
             inputProperty = inputPropertyNode.GetVolumeProperty()
@@ -278,7 +279,7 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
             inputOpacityFunction.RemoveAllPoints()
             scalarRange = inputVolume.GetImageData().GetScalarRange()
             inputOpacityFunction.AddPoint(scalarRange[0], 0.0)
-            inputOpacityFunction.AddPoint(scalarRange[1], 0.2) #20% opacity
+            inputOpacityFunction.AddPoint(scalarRange[1], inputOpacity) # % opacity
     
             slicer.app.processEvents()  #refresh render
 
@@ -366,9 +367,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
 
         maxValue = arr.max()
         # print('\n')
-        # print(maxValue)
-        # print(lower*maxValue)
-        # print(upper*maxValue)
+        print(f"Image maximum intensity = {maxValue}")
         
         binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=lower*maxValue, upperThreshold=upper*maxValue, insideValue=1, outsideValue=0)
         # binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=thresholdValue, upperThreshold=1e9, insideValue=1, outsideValue=0)
