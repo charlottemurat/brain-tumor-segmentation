@@ -328,7 +328,11 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         thresholdValue = arr.max() / 2 
         binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=thresholdValue, upperThreshold=1e9, insideValue=1, outsideValue=0)
 
-        maskedImage = sitk.Mask(sitkImage, binaryMask)
+        cc = sitk.ConnectedComponent(binaryMask)
+        largest = sitk.RelabelComponent(cc, sortByObjectSize=True)
+        largestMask = largest == 1
+
+        maskedImage = sitk.Mask(sitkImage, largestMask)
 
         maskedArr = sitk.GetArrayFromImage(maskedImage)
         slicer.util.updateVolumeFromArray(inputVolume, maskedArr)
