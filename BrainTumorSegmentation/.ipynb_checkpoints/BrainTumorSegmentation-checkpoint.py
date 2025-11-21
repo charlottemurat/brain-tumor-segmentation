@@ -142,6 +142,10 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
         ScriptedLoadableModuleWidget.setup(self)
+        self.inputSelector = slicer.qMRMLNodeComboBox()
+        self.inputSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
+        self.inputSelector.setMRMLScene(slicer.mrmlScene)
+        self.layout.addWidget(self.inputSelector)
 
         # Load widget from .ui file (created by Qt Designer).
         # Additional widgets can be instantiated manually and added to self.layout.
@@ -240,10 +244,43 @@ class BrainTumorSegmentationWidget(ScriptedLoadableModuleWidget, VTKObservationM
         """Run processing when user clicks "Apply" button."""
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
             sigma = self.ui.blurStrengthSlider.value
-            self.logic.process(self.ui.inputSelector.currentNode(), self.ui.outputSelector.currentNode(), sigma=sigma)
+            alpha = self.ui.sharpStrengthSlider.value
+            lower = self.ui.lowerThreshold.value
+            upper = self.ui.upperThreshold.value
+            inputVolume = self.inputSelector.currentNode()
+            outputVolume = self.ui.outputSelector.currentNode()
 
+            showInput = self.ui.showInput.checked
+            showMask = self.ui.showMask.checked
             
-
+            self.logic.process(inputVolume, outputVolume, sigma=sigma, alpha=alpha, lower=lower, upper=upper)
+            vrLogic = slicer.modules.volumerendering.logic()
+    
+            maskNode = vrLogic.CreateDefaultVolumeRenderingNodes(outputVolume)
+            maskNode.SetVisibility(showMask)
+    
+            maskPropertyNode = maskNode.GetVolumePropertyNode() #setting green color and full opaqueness for mask
+            maskProperty = maskPropertyNode.GetVolumeProperty()
+            colorTransferFunction = maskProperty.GetRGBTransferFunction(0)
+            colorTransferFunction.RemoveAllPoints()
+            colorTransferFunction.AddRGBPoint(1, 0.0, 1.0, 0.0)
+            maskOpacityFunction = maskProperty.GetScalarOpacity()
+            maskOpacityFunction.RemoveAllPoints()
+            maskOpacityFunction.AddPoint(0, 0.0)
+            maskOpacityFunction.AddPoint(1, 1.0)
+    
+            inputNode = vrLogic.CreateDefaultVolumeRenderingNodes(inputVolume) #setting transparency for input volume overlay
+            inputNode.SetVisibility(showInput)
+    
+            inputPropertyNode = inputNode.GetVolumePropertyNode()
+            inputProperty = inputPropertyNode.GetVolumeProperty()
+            inputOpacityFunction = inputProperty.GetScalarOpacity()
+            inputOpacityFunction.RemoveAllPoints()
+            scalarRange = inputVolume.GetImageData().GetScalarRange()
+            inputOpacityFunction.AddPoint(scalarRange[0], 0.0)
+            inputOpacityFunction.AddPoint(scalarRange[1], 0.2) #20% opacity
+    
+            slicer.app.processEvents()  #refresh render
 
 #
 # BrainTumorSegmentationLogic
@@ -270,7 +307,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
     def process(self,
                 inputVolume: vtkMRMLScalarVolumeNode,
                 outputVolume: vtkMRMLScalarVolumeNode,
-                sigma = 1.0,
+                sigma = 1.0, alpha = 1.0, lower = 0.25, upper = 0.75,
                 showResult: bool = True) -> None:
         """
         Run the processing algorithm.
@@ -279,6 +316,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         :param outputVolume: thresholding result
         :param showResult: show output volume in slice viewers
         """
+        
         if not outputVolume.GetDisplayNode(): #create a default output display node if one doesn't exist
             outputVolume.CreateDefaultDisplayNodes()
 
@@ -289,8 +327,6 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
 
         startTime = time.time()
         logging.info("Processing started")
-
-        #this is where we need to do all the processing on volume_numpy, for example a gaussian filter
 
         outputVolume.SetOrigin(inputVolume.GetOrigin())
         outputVolume.SetSpacing(inputVolume.GetSpacing())
@@ -304,11 +340,47 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         
         volume_numpy = slicer.util.arrayFromVolume(inputVolume)
         sitk_image = sitk.GetImageFromArray(volume_numpy) #sitk takes Z, Y, X array order
-        sitk_image = sitk.SmoothingRecursiveGaussian(sitk_image, sigma=sigma)
-        filtered_volume = sitk.GetArrayFromImage(sitk_image)
+        blur_image = sitk.SmoothingRecursiveGaussian(sitk_image, sigma=sigma)
 
+        high_freq = sitk.Subtract(sitk_image, blur_image)
+        sharpened = sitk.Add(sitk_image, sitk.Multiply(high_freq, alpha))
+        
+        filtered_volume = sitk.GetArrayFromImage(sharpened)
+        
         slicer.util.updateVolumeFromArray(outputVolume, filtered_volume)
+        displayNode = outputVolume.GetDisplayNode()
+        if displayNode:
+            scalarRange = outputVolume.GetImageData().GetScalarRange()
+            displayNode.SetWindow(scalarRange[1] - scalarRange[0])
+            displayNode.SetLevel(0.5 * (scalarRange[0] + scalarRange[1]))
 
+
+        # Thresholding
+        # arr = slicer.util.arrayFromVolume(inputVolume) 
+
+        # sitkImage = sitk.GetImageFromArray(arr)
+        # sitkImage.SetSpacing(inputVolume.GetSpacing())
+
+        sitkImage = sharpened
+        arr = filtered_volume
+
+        maxValue = arr.max()
+        # print('\n')
+        # print(maxValue)
+        # print(lower*maxValue)
+        # print(upper*maxValue)
+        
+        binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=lower*maxValue, upperThreshold=upper*maxValue, insideValue=1, outsideValue=0)
+        # binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=thresholdValue, upperThreshold=1e9, insideValue=1, outsideValue=0)
+        
+        cc = sitk.ConnectedComponent(binaryMask)
+        largest = sitk.RelabelComponent(cc, sortByObjectSize=True)
+        largestMask = largest == 1
+
+        maskedImage = sitk.Mask(sitkImage, largestMask)
+
+        maskedArr = sitk.GetArrayFromImage(maskedImage)
+        slicer.util.updateVolumeFromArray(outputVolume, maskedArr)
 
         stopTime = time.time()
         logging.info(f"Processing completed in {stopTime-startTime:.2f} seconds")
