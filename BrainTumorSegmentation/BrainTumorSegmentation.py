@@ -325,7 +325,7 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         sitkImage = sitk.GetImageFromArray(arr)
         sitkImage.SetSpacing(inputVolume.GetSpacing())
 
-        thresholdValue = arr.max() / 2 
+        thresholdValue = 1100
         binaryMask = sitk.BinaryThreshold(sitkImage, lowerThreshold=thresholdValue, upperThreshold=1e9, insideValue=1, outsideValue=0)
 
         cc = sitk.ConnectedComponent(binaryMask)
