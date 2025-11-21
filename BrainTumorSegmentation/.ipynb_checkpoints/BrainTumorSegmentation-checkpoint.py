@@ -318,9 +318,9 @@ class BrainTumorSegmentationLogic(ScriptedLoadableModuleLogic):
         blur_image = sitk.SmoothingRecursiveGaussian(sitk_image, sigma=sigma)
 
         high_freq = sitk.Subtract(sitk_image, blur_image)
-        blur_image = sitk.Add(sitk_image, sitk.Multiply(high_freq, alpha))
+        sharpened = sitk.Add(sitk_image, sitk.Multiply(high_freq, alpha))
         
-        filtered_volume = sitk.GetArrayFromImage(blur_image)
+        filtered_volume = sitk.GetArrayFromImage(sharpened)
 
         slicer.util.updateVolumeFromArray(outputVolume, filtered_volume)
         displayNode = outputVolume.GetDisplayNode()
